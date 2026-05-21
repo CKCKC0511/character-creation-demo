@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tipsy 角色浏览器</title>
+  <style>
+    :root {
+      --bg: #0a0a0c;
+      --bg-1: #131318;
+      --bg-2: #1a1a22;
+      --bg-3: #22222d;
+      --line: #2a2a36;
+      --text: #e8e8ee;
+      --muted: #888894;
+      --accent: #f91f7e;
+      --accent-2: #c10260;
+      --male: #3583ec;
+      --female: #f91f7e;
+      --other: #b87bff;
+      --ok: #2ecc71;
+      --warn: #f59f00;
+      --err: #e03131;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font: inherit; cursor: pointer; }
+
+    .header {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      background: rgba(10, 10, 12, .82);
+      border-bottom: 1px solid var(--line);
+    }
+    .header-inner {
+      max-width: 1400px; margin: 0 auto; padding: 14px 22px;
+      display: flex; gap: 14px; align-items: center;
+    }
+    .logo {
+      font-size: 19px; font-weight: 700; letter-spacing: -0.01em;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 12px var(--accent);
+    }
+    .meta { color: var(--muted); font-size: 13px; }
+    .grow { flex: 1; }
+    .icon-btn {
+      background: var(--bg-2); border: 1px solid var(--line);
+      color: var(--text); padding: 8px 14px; border-radius: 10px;
+      font-size: 13px; transition: all .15s;
+      display: inline-flex; gap: 6px; align-items: center;
+    }
+    .icon-btn:hover { background: var(--bg-3); border-color: #3a3a48; }
+    .icon-btn.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+    .icon-btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+    .icon-btn.heavy {
+      background: rgba(249,31,126,.10); border-color: var(--accent);
+      color: white; font-weight: 600;
+      box-shadow: 0 0 0 1px rgba(249,31,126,.25), 0 0 12px -4px rgba(249,31,126,.5);
+    }
+    .icon-btn.heavy:hover { background: rgba(249,31,126,.20); border-color: var(--accent); }
+    .icon-btn.heavy.on { background: var(--accent); border-color: var(--accent); }
+    .icon-btn.heavy.on:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+    .toolbar {
+      max-width: 1400px; margin: 0 auto; padding: 16px 22px 8px;
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    }
+    .search {
+      flex: 1; min-width: 220px;
+      padding: 10px 14px; background: var(--bg-1); border: 1px solid var(--line);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      transition: border-color .15s;
+    }
+    .search:focus { outline: none; border-color: var(--accent); }
+    .chip {
+      padding: 7px 13px; background: var(--bg-1); border: 1px solid var(--line);
+      border-radius: 999px; color: #ccc; font-size: 13px; transition: all .12s;
+    }
+    .chip:hover { border-color: #3a3a48; color: var(--text); }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: white; }
+    .chip.tag-chip.active { background: #3a3a48; border-color: #4a4a58; color: var(--text); }
+
+    .tag-row {
+      max-width: 1400px; margin: 0 auto; padding: 4px 22px 14px;
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    }
+    .tag-row .label { color: var(--muted); font-size: 12px; margin-right: 4px; }
+    .tag-chip { font-size: 12px; padding: 5px 10px; }
+
+    main {
+      max-width: 1400px; margin: 0 auto; padding: 6px 22px 60px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--bg-1); border: 1px solid var(--line); border-radius: 14px;
+      overflow: hidden; cursor: pointer;
+      transition: transform .15s, border-color .15s, box-shadow .15s;
+      display: flex; flex-direction: column;
+    }
+    .card:hover { transform: translateY(-3px); border-color: #3a3a48; box-shadow: 0 12px 24px -8px rgba(0,0,0,.4); }
+    .card .img-wrap {
+      aspect-ratio: 3/4; background: var(--bg-2); position: relative;
+      background-size: cover; background-position: center top;
+    }
+    .card .img-wrap::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,.55));
+    }
+    .gender-badge {
+      position: absolute; top: 8px; left: 8px; z-index: 1;
+      padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.02em; text-transform: capitalize; color: white;
+    }
+    .gender-male { background: rgba(53,131,236,.92); }
+    .gender-female { background: rgba(249,31,126,.92); }
+    .gender-other { background: rgba(184,123,255,.92); }
+    .nsfw-badge {
+      position: absolute; top: 8px; right: 8px; z-index: 1;
+      padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 700;
+      background: rgba(224,49,49,.92); color: white;
+    }
+    .card .info { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .card .name {
+      font-weight: 600; font-size: 14px; line-height: 1.3;
+      display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .card .intro {
+      font-size: 12px; color: var(--muted); line-height: 1.45;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      min-height: 34px;
+    }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tag {
+      font-size: 10.5px; padding: 2px 7px; background: var(--bg-3);
+      border-radius: 5px; color: #b8b8c0; white-space: nowrap;
+    }
+
+    .empty {
+      text-align: center; padding: 80px 20px; color: var(--muted);
+    }
+    .empty h2 { color: var(--text); margin-bottom: 8px; }
+    .empty p { font-size: 14px; margin-bottom: 22px; }
+
+    /* Modal */
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,.85);
+      display: none; align-items: flex-start; justify-content: center;
+      z-index: 200; padding: 30px 20px; overflow-y: auto;
+    }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--bg-1); max-width: 760px; width: 100%;
+      border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
+      animation: pop .18s ease-out;
+    }
+    @keyframes pop {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .modal .hero {
+      width: 100%; aspect-ratio: 16/9; background: var(--bg-2) center / cover;
+      position: relative;
+    }
+    .modal .hero .close-btn {
+      position: absolute; top: 12px; right: 12px;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(0,0,0,.5); border: none; color: white;
+      font-size: 18px; backdrop-filter: blur(6px);
+    }
+    .modal .body { padding: 22px 26px 28px; }
+    .modal h2 { font-size: 22px; margin-bottom: 10px; line-height: 1.3; }
+    .modal .meta-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin-bottom: 18px;
+    }
+    .modal h3 {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      letter-spacing: 0.08em; text-transform: uppercase;
+      margin: 18px 0 8px;
+    }
+    .modal p { color: #d4d4dc; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+    .modal .gallery { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .modal .gallery img { width: 110px; aspect-ratio: 1/1; border-radius: 8px; object-fit: cover; background: var(--bg-2); }
+
+    /* Drawer */
+    .drawer-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      z-index: 150; display: none;
+    }
+    .drawer-bg.show { display: block; }
+    .drawer {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 100%; max-width: 460px; background: var(--bg-1);
+      border-left: 1px solid var(--line); z-index: 160;
+      transform: translateX(100%); transition: transform .25s ease-out;
+      display: flex; flex-direction: column;
+    }
+    .drawer.show { transform: translateX(0); }
+    .drawer header {
+      padding: 16px 20px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .drawer header h3 { font-size: 16px; }
+    .drawer .body { padding: 18px 20px; overflow-y: auto; flex: 1; }
+    .drawer .body label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; margin-top: 14px; }
+    .drawer .body input[type=number] {
+      width: 100%; padding: 9px 12px; background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 8px; color: var(--text); font: inherit;
+    }
+    .switch-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    .switch {
+      position: relative; width: 36px; height: 20px;
+      background: var(--bg-3); border-radius: 999px; cursor: pointer; transition: background .15s;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+      background: white; border-radius: 50%; transition: transform .15s;
+    }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { transform: translateX(16px); }
+    .tag-picker {
+      max-height: 220px; overflow-y: auto; padding: 8px;
+      background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .drawer footer {
+      padding: 16px 20px; border-top: 1px solid var(--line);
+      display: flex; gap: 10px; align-items: center;
+    }
+    .log-box {
+      margin-top: 14px; padding: 10px 12px;
+      background: #050507; border: 1px solid var(--line); border-radius: 8px;
+      max-height: 240px; overflow-y: auto;
+      font-family: ui-monospace, SF Mono, Menlo, monospace; font-size: 11.5px;
+      color: #cfd2d8; white-space: pre-wrap; word-break: break-all;
+    }
+    .status-pill {
+      padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    }
+    .status-pill.idle { background: var(--bg-3); color: var(--muted); }
+    .status-pill.running { background: rgba(245,159,0,.15); color: var(--warn); }
+    .status-pill.done { background: rgba(46,204,113,.15); color: var(--ok); }
+    .status-pill.err { background: rgba(224,49,49,.15); color: var(--err); }
+    .pulse { animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
+    /* ===== 卡片勾选 ===== */
+    .card .pick {
+      position: absolute; top: 8px; right: 8px; z-index: 2;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(0,0,0,.55); border: 1.5px solid rgba(255,255,255,.6);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .12s;
+      backdrop-filter: blur(4px);
+    }
+    .card .pick:hover { border-color: white; transform: scale(1.05); }
+    .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(249,31,126,.35); }
+    .card.selected .pick { background: var(--accent); border-color: var(--accent); }
+    .card.selected .pick::after {
+      content: ""; width: 8px; height: 14px;
+      border-right: 2.5px solid white; border-bottom: 2.5px solid white;
+      transform: rotate(45deg) translate(-1px, -2px);
+    }
+    .card.selected .nsfw-badge { right: 42px; }
+
+    /* ===== 生成中心 modal ===== */
+    .gen-modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,.86);
+      display: none; z-index: 250;
+    }
+    .gen-modal-bg.show { display: flex; }
+    .gen-modal {
+      width: 100%; height: 100%;
+      display: grid; grid-template-rows: auto 1fr auto;
+      background: var(--bg);
+    }
+    .gen-modal > header {
+      padding: 14px 22px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 14px;
+    }
+    .gen-modal > header h2 { font-size: 16px; font-weight: 700; }
+    .gen-modal > header .meta { font-size: 12px; color: var(--muted); }
+    .gen-body {
+      display: grid; grid-template-columns: 220px 1fr;
+      overflow: hidden;
+    }
+    .gen-nav {
+      border-right: 1px solid var(--line); padding: 14px 10px;
+      display: flex; flex-direction: column; gap: 4px; background: var(--bg-1);
+    }
+    .gen-nav button {
+      text-align: left; padding: 10px 14px; border: 1px solid transparent;
+      background: transparent; color: var(--muted); border-radius: 8px;
+      font: inherit; font-size: 13.5px; transition: all .12s;
+    }
+    .gen-nav button:hover { background: var(--bg-2); color: var(--text); }
+    .gen-nav button.active { background: var(--bg-2); border-color: var(--line); color: var(--text); font-weight: 600; }
+    .gen-pane {
+      overflow-y: auto; padding: 22px 26px; display: none;
+    }
+    .gen-pane.active { display: block; }
+    .gen-pane h3 { font-size: 14px; margin-bottom: 8px; }
+    .gen-pane .hint { color: var(--muted); font-size: 12.5px; line-height: 1.6; margin-bottom: 14px; }
+
+    .gen-row {
+      display: grid; grid-template-columns: 64px 1fr auto; gap: 12px;
+      padding: 12px; background: var(--bg-1); border: 1px solid var(--line);
+      border-radius: 10px; margin-bottom: 8px; align-items: center;
+    }
+    .gen-row .thumb {
+      width: 64px; aspect-ratio: 3/4; border-radius: 8px;
+      background: var(--bg-2) center/cover; flex-shrink: 0;
+    }
+    .gen-row .name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .gen-row .sub  { font-size: 12px; color: var(--muted); }
+    .gen-row textarea {
+      width: 100%; min-height: 60px; padding: 8px 10px;
+      background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+      color: var(--text); font: inherit; font-size: 13px; resize: vertical;
+    }
+    .gen-row .actions { display: flex; gap: 6px; align-items: center; }
+
+    .user-portrait-form textarea {
+      width: 100%; min-height: 130px; padding: 12px 14px;
+      background: var(--bg-1); border: 1px solid var(--line); border-radius: 10px;
+      color: var(--text); font: inherit; font-size: 14px; resize: vertical;
+    }
+    .user-portrait-form .actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+
+    /* ===== 任务面板 ===== */
+    .gen-jobs {
+      border-top: 1px solid var(--line); background: var(--bg-1);
+      padding: 12px 22px; max-height: 220px; overflow-y: auto;
+    }
+    .gen-jobs h4 { font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .08em; }
+    .job-row {
+      display: grid; grid-template-columns: 100px 1fr auto;
+      gap: 10px; align-items: center; padding: 8px 10px;
+      border: 1px solid var(--line); background: var(--bg-2);
+      border-radius: 8px; margin-bottom: 6px; font-size: 13px;
+    }
+    .job-row.queued .pill   { background: var(--bg-3); color: var(--muted); }
+    .job-row.running .pill  { background: rgba(245,159,0,.15); color: var(--warn); }
+    .job-row.done .pill     { background: rgba(46,204,113,.15); color: var(--ok); }
+    .job-row.error .pill    { background: rgba(224,49,49,.15); color: var(--err); }
+    .job-row .pill { padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; text-align: center; }
+    .job-row .label { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job-row .actions { display: flex; gap: 6px; }
+    .job-row .img-out { height: 28px; aspect-ratio: 1/1; border-radius: 6px; background: var(--bg-3) center/cover; }
+
+    /* select-mode toolbar 浮条 */
+    .selbar {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      background: rgba(20,20,28,.96); border: 1px solid var(--line);
+      border-radius: 999px; padding: 8px 8px 8px 18px;
+      display: none; align-items: center; gap: 12px;
+      box-shadow: 0 16px 40px -8px rgba(0,0,0,.6); z-index: 90;
+      backdrop-filter: blur(8px);
+    }
+    .selbar.show { display: flex; }
+    .selbar .count { font-weight: 700; font-size: 14px; }
+    .selbar button { font-size: 13px; }
+
+    /* enrich result preview */
+    .enrich-card {
+      padding: 14px; background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 10px; margin-top: 10px;
+    }
+    .enrich-card h5 { font-size: 12px; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: .06em; }
+    .enrich-card p { font-size: 13px; line-height: 1.6; color: #d4d4dc; margin-bottom: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <div class="logo"><span class="dot"></span> Tipsy 角色浏览器</div>
+    <span class="meta" id="stat-meta">加载中…</span>
+    <div class="grow"></div>
+    <button class="icon-btn heavy" id="select-mode-btn" onclick="toggleSelectMode()">☐ 选择角色</button>
+    <button class="icon-btn" onclick="openGenModal()">✨ 生成中心</button>
+    <button class="icon-btn" onclick="reload()">↻ 刷新</button>
+    <button class="icon-btn primary" onclick="openDrawer()">＋ 新增爬取</button>
+  </div>
+
+  <div class="toolbar">
+    <input class="search" id="search" placeholder="搜索：角色名 / 标签 / 简介 / 开场白…" />
+    <button class="chip active" data-gender="all" onclick="setGender('all', this)">全部</button>
+    <button class="chip" data-gender="female" onclick="setGender('female', this)">♀ 女</button>
+    <button class="chip" data-gender="male" onclick="setGender('male', this)">♂ 男</button>
+    <button class="chip" data-gender="other" onclick="setGender('other', this)">其他</button>
+  </div>
+
+  <div class="tag-row" id="tag-row" style="display:none;">
+    <span class="label">标签筛选</span>
+    <span id="tag-chips"></span>
+    <button class="chip" onclick="clearTagFilter()" id="clear-tag-btn" style="display:none">× 清除</button>
+  </div>
+</header>
+
+<main>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty">
+    <h2>还没有抓到角色</h2>
+    <p>点击右上角 <strong>「＋ 新增爬取」</strong> 启动一次抓取，或在命令行执行 <code>.venv/bin/python tipsy/scrape_tipsy.py --count 20</code></p>
+    <button class="icon-btn primary" onclick="openDrawer()">立即开始抓取</button>
+  </div>
+</main>
+
+<!-- Detail Modal -->
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal"></div>
+</div>
+
+<!-- Scrape Drawer -->
+<div class="drawer-bg" id="drawer-bg" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <header>
+    <h3>抓取 ♂ 男性角色</h3>
+    <div class="grow"></div>
+    <span id="job-status" class="status-pill idle">空闲</span>
+    <button class="icon-btn" onclick="closeDrawer()">×</button>
+  </header>
+  <div class="body">
+    <label>数据源 (Tab)</label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="chip feed-chip" data-feed="popular">Popular（热门榜）</button>
+      <button class="chip feed-chip active" data-feed="weekly">Trending（周榜）</button>
+      <button class="chip feed-chip" data-feed="new">Latest（新发布）</button>
+      <button class="chip feed-chip" data-feed="featured">For You（精选）</button>
+      <button class="chip feed-chip" data-feed="recommend">Recommend（随机）</button>
+    </div>
+
+    <label>抓取数量</label>
+    <input type="number" id="opt-count" min="1" max="2000" value="20" />
+
+    <div class="log-box" id="log-box" style="display:none;"></div>
+  </div>
+  <footer>
+    <button class="icon-btn primary" id="start-btn" onclick="startScrape()">开始爬取</button>
+    <span class="meta" id="job-meta"></span>
+  </footer>
+</aside>
+
+<!-- Floating selection bar -->
+<div class="selbar" id="selbar">
+  <span class="count" id="selbar-count">已选 0</span>
+  <button class="icon-btn" onclick="clearSelection()">取消</button>
+  <button class="icon-btn primary" onclick="openGenModal()">→ 进入生成中心</button>
+</div>
+
+<!-- Generation Modal -->
+<div class="gen-modal-bg" id="gen-modal-bg">
+  <div class="gen-modal">
+    <header>
+      <h2>✨ 生成中心</h2>
+      <span class="meta" id="gen-meta">未选择角色</span>
+      <div class="grow"></div>
+      <button class="icon-btn" onclick="closeGenModal()">× 关闭</button>
+    </header>
+    <div class="gen-body">
+      <nav class="gen-nav">
+        <button class="active" data-pane="enrich" onclick="switchPane('enrich')">📚 角色丰容</button>
+        <button data-pane="char-portrait" onclick="switchPane('char-portrait')">🎨 角色立绘</button>
+        <button data-pane="user-portrait" onclick="switchPane('user-portrait')">👤 用户立绘</button>
+        <button data-pane="export" onclick="switchPane('export')">📦 导出角色</button>
+      </nav>
+
+      <section>
+        <div class="gen-pane active" id="pane-enrich">
+          <h3>批量丰容</h3>
+          <div class="hint">基于通用提示词为选中的角色生成全新人设（新名字 / 新简介 / 新开场白 + 用户背景）。多个角色并发执行。</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="icon-btn primary" id="enrich-all-btn" onclick="startEnrichSelected()">⚡ 丰容全部选中</button>
+            <span class="meta" id="enrich-summary"></span>
+          </div>
+          <div id="enrich-list"></div>
+        </div>
+
+        <div class="gen-pane" id="pane-char-portrait">
+          <h3>角色立绘</h3>
+          <div class="hint">参考图自动取自该角色卡片图。在每个角色下输入立绘描述（英文效果更好），点单独的「生成」按钮即可。每条立绘任务彼此并发，与丰容互不阻塞。</div>
+          <div id="char-portrait-list"></div>
+        </div>
+
+        <div class="gen-pane" id="pane-user-portrait">
+          <h3>用户立绘 · 按角色配对</h3>
+          <div class="hint">为每个选中的角色生成对应的「用户」立绘。生成时<strong>不会</strong>把角色卡片图当参考图，只使用你输入的文字描述（纯文生图）。每个任务并发执行。</div>
+          <div id="user-portrait-list"></div>
+        </div>
+
+        <div class="gen-pane" id="pane-export">
+          <h3>导出角色到 Excel</h3>
+          <div class="hint">列出所有已经生成过任意产物（丰容 / 角色立绘 / 用户立绘）的角色。勾选要导出的角色，点击导出按钮就能拿到一份 .xlsx —— 里面有原始角色信息、丰容后的新人设，以及嵌入的两张立绘图片。</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+            <button class="icon-btn" onclick="loadExportCandidates()">↻ 刷新列表</button>
+            <button class="icon-btn" onclick="exportSelectAll(true)">全选</button>
+            <button class="icon-btn" onclick="exportSelectAll(false)">取消</button>
+            <button class="icon-btn primary" onclick="doExport()">⬇ 导出选中为 Excel</button>
+            <span class="meta" id="export-meta"></span>
+          </div>
+          <div id="export-list"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="gen-jobs">
+      <h4>任务进度（实时刷新）</h4>
+      <div id="job-list"><span class="meta">尚无任务</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- state ----------
+  const state = {
+    items: [],
+    filtered: [],
+    search: "",
+    gender: "all",
+    tagFilter: null,
+    pollTimer: null,
+    feed: "weekly",   // 抓取面板默认 Trending
+    selectMode: false,
+    selectedIds: new Set(),
+    activePane: "enrich",
+    genPollTimer: null,
+    enrichResults: {},        // character_id → enrich job result（最新一次）
+    userPortraitsByCid: {},   // character_id → 该角色对应的用户立绘列表
+    seenJobIds: new Set(),    // 已被消费过的任务，避免重复入历史
+    charPortraitDrafts: {},   // character_id → 角色立绘 prompt 草稿
+    userPortraitDrafts: {},   // character_id → 用户立绘 prompt 草稿
+    exportCandidates: [],     // 可导出的角色列表（含产物状态）
+    exportSelectedIds: new Set(),  // 在「导出」区块选中的角色
+    running: {                // 当前正在跑的任务，key 是 character_id
+      enrich: new Set(),
+      char_portrait: new Set(),
+      user_portrait: new Set(),
+    },
+  };
+
+  // ---------- helpers ----------
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (s) =>
+    (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmtTime = (t) => (t ? new Date(t * 1000).toLocaleString() : "—");
+  const genderClass = (g) => (g === "male" || g === "female" ? `gender-${g}` : "gender-other");
+  const genderLabel = (g) => (g === "male" ? "♂" : g === "female" ? "♀" : g || "?");
+
+  // ---------- load characters ----------
+  async function reload() {
+    try {
+      const r = await fetch("/api/characters");
+      const data = await r.json();
+      state.items = data.items || [];
+      $("stat-meta").textContent = data.count
+        ? `共 ${data.count} 个角色 · 更新于 ${fmtTime(data.scraped_at)}`
+        : "暂无数据";
+    } catch (e) {
+      state.items = [];
+      $("stat-meta").textContent = "数据加载失败";
+    }
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const q = state.search.trim().toLowerCase();
+    state.filtered = state.items.filter((c) => {
+      if (state.gender === "male" && c.gender !== "male") return false;
+      if (state.gender === "female" && c.gender !== "female") return false;
+      if (state.gender === "other" && (c.gender === "male" || c.gender === "female")) return false;
+      if (state.tagFilter && !(c.tags || []).includes(state.tagFilter)) return false;
+      if (q) {
+        const hay = [c.name, c.introduction, c.greeting, ...(c.tags || [])].join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    render();
+  }
+
+  function render() {
+    const grid = $("grid");
+    const empty = $("empty");
+    if (!state.items.length) {
+      grid.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+    empty.style.display = "none";
+    if (!state.filtered.length) {
+      grid.innerHTML = `<div class="empty" style="grid-column: 1/-1"><h2>没有匹配结果</h2><p>试试清除搜索或筛选条件</p></div>`;
+    } else {
+      grid.innerHTML = state.filtered
+        .map((c) => {
+          // 卡片封面用 3:4 大图，face_url 是 1:1 头像，硬塞会变形
+          const img = c.image_url || c.animated_image_url || c.face_url || "";
+          const tagBits = (c.tags || []).slice(0, 4).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("");
+          const selected = state.selectedIds.has(c.character_id);
+          const showPick = state.selectMode || selected;
+          return `
+          <div class="card ${selected ? "selected" : ""}" data-id="${c.character_id}">
+            <div class="img-wrap" style="background-image:url('${img}')">
+              ${c.gender ? `<span class="gender-badge ${genderClass(c.gender)}">${genderLabel(c.gender)}</span>` : ""}
+              ${c.is_nsfw ? `<span class="nsfw-badge">NSFW</span>` : ""}
+              ${showPick ? `<div class="pick" data-pick="${c.character_id}" title="加入生成列表"></div>` : ""}
+            </div>
+            <div class="info">
+              <div class="name">${escapeHtml(c.name || "(无名)")}</div>
+              <div class="intro">${escapeHtml(c.introduction || "")}</div>
+              <div class="tags">${tagBits}</div>
+            </div>
+          </div>`;
+        })
+        .join("");
+      grid.querySelectorAll(".pick").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleSelect(el.dataset.pick);
+        });
+      });
+      grid.querySelectorAll(".card").forEach((el) => {
+        el.addEventListener("click", () => {
+          if (state.selectMode) toggleSelect(el.dataset.id);
+          else openModal(el.dataset.id);
+        });
+      });
+      updateSelBar();
+    }
+    renderTagFilters();
+  }
+
+  function renderTagFilters() {
+    const counts = new Map();
+    state.items.forEach((c) => (c.tags || []).forEach((t) => counts.set(t, (counts.get(t) || 0) + 1)));
+    const top = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 25);
+    if (!top.length) {
+      $("tag-row").style.display = "none";
+      return;
+    }
+    $("tag-row").style.display = "flex";
+    $("tag-chips").innerHTML = top
+      .map(
+        ([t, n]) =>
+          `<button class="chip tag-chip ${state.tagFilter === t ? "active" : ""}"
+                   onclick="setTagFilter('${t.replace(/'/g, "\\'")}', this)">${escapeHtml(t)} <span style="opacity:.55">·${n}</span></button>`
+      )
+      .join("");
+    $("clear-tag-btn").style.display = state.tagFilter ? "inline-flex" : "none";
+  }
+
+  // ---------- modal ----------
+  function openModal(id) {
+    const c = state.items.find((x) => x.character_id === id);
+    if (!c) return;
+    const hero = c.image_url || c.face_url || c.animated_image_url || "";
+    const gallery = [c.image_url, c.face_url, c.animated_image_url].filter(Boolean);
+    $("modal").innerHTML = `
+      <div class="hero" style="background-image:url('${hero}')">
+        <button class="close-btn" onclick="closeModal()">×</button>
+      </div>
+      <div class="body">
+        <h2>${escapeHtml(c.name || "")}</h2>
+        <div class="meta-row">
+          ${c.gender ? `<span class="tag" style="background:${c.gender === "male" ? "var(--male)" : c.gender === "female" ? "var(--female)" : "var(--other)"};color:white">${escapeHtml(c.gender)}</span>` : ""}
+          ${c.is_nsfw ? `<span class="tag" style="background:var(--err);color:white">NSFW</span>` : ""}
+          ${(c.tags || []).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("")}
+        </div>
+
+        <h3>角色简介</h3>
+        <p>${escapeHtml(c.introduction || "(无)")}</p>
+
+        <h3>开场白</h3>
+        <p>${escapeHtml(c.greeting || "(无)")}</p>
+
+        <h3>角色图片</h3>
+        <div class="gallery">
+          ${gallery.map((u) => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy" /></a>`).join("")}
+        </div>
+
+        <h3>原始链接</h3>
+        <p><a href="${c.source_url}" target="_blank">${c.source_url}</a></p>
+
+        <h3>作者</h3>
+        <p>${escapeHtml(c.creator_nickname || "(未知)")} · 语言：${escapeHtml(c.lang || "?")}</p>
+      </div>
+    `;
+    $("modal-bg").classList.add("show");
+  }
+  function closeModal() {
+    $("modal-bg").classList.remove("show");
+  }
+
+  // ---------- filters ----------
+  function setGender(g, btn) {
+    state.gender = g;
+    document.querySelectorAll(".chip[data-gender]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    applyFilters();
+  }
+  function setTagFilter(t, btn) {
+    state.tagFilter = state.tagFilter === t ? null : t;
+    applyFilters();
+  }
+  function clearTagFilter() {
+    state.tagFilter = null;
+    applyFilters();
+  }
+
+  $("search").addEventListener("input", (e) => {
+    state.search = e.target.value;
+    applyFilters();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeModal();
+      closeDrawer();
+    }
+  });
+
+  // ---------- scrape drawer ----------
+  function openDrawer() {
+    $("drawer-bg").classList.add("show");
+    $("drawer").classList.add("show");
+  }
+
+  // feed chip 切换
+  document.querySelectorAll(".feed-chip").forEach((b) => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".feed-chip").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      state.feed = b.dataset.feed;
+    });
+  });
+  function closeDrawer() {
+    $("drawer-bg").classList.remove("show");
+    $("drawer").classList.remove("show");
+  }
+
+  function setScrapeStatus(state_) {
+    const el = $("job-status");
+    if (state_ === "running") {
+      el.className = "status-pill running pulse";
+      el.textContent = "抓取中…";
+    } else if (state_ === "done") {
+      el.className = "status-pill done";
+      el.textContent = "完成";
+    } else if (state_ === "error") {
+      el.className = "status-pill err";
+      el.textContent = "失败";
+    } else {
+      el.className = "status-pill idle";
+      el.textContent = "空闲";
+    }
+  }
+
+  async function startScrape() {
+    const body = {
+      feed: state.feed,
+      gender: "male",
+      nsfw: true,
+      count: parseInt($("opt-count").value, 10) || 20,
+    };
+    $("start-btn").disabled = true;
+    setScrapeStatus("running");
+    $("log-box").style.display = "block";
+    $("log-box").textContent = "▶ 正在抓取，最长可能 30~60 秒，请耐心等待…";
+    try {
+      const r = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        $("log-box").textContent = `❌ 抓取失败: ${data.error || r.statusText}`;
+        setScrapeStatus("error");
+        return;
+      }
+      $("log-box").textContent = `✓ 完成。共抓到 ${data.count} 个 ${data.gender || "?"} 角色（${data.feed}）`;
+      setScrapeStatus("done");
+      reload();
+    } catch (e) {
+      $("log-box").textContent = "❌ 网络错误: " + e.message;
+      setScrapeStatus("error");
+    } finally {
+      $("start-btn").disabled = false;
+    }
+  }
+
+  // ---------- selection / select-mode ----------
+  function toggleSelectMode() {
+    state.selectMode = !state.selectMode;
+    const btn = $("select-mode-btn");
+    btn.innerHTML = state.selectMode ? "✓ 退出选择模式" : "☐ 选择角色";
+    btn.classList.toggle("on", state.selectMode);
+    render();
+  }
+
+  function toggleSelect(id) {
+    if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+    else state.selectedIds.add(id);
+    render();
+  }
+
+  function clearSelection() {
+    state.selectedIds.clear();
+    render();
+  }
+
+  function updateSelBar() {
+    const n = state.selectedIds.size;
+    $("selbar").classList.toggle("show", n > 0);
+    $("selbar-count").textContent = `已选 ${n}`;
+    $("gen-meta").textContent = n > 0 ? `已选 ${n} 个角色` : "未选择角色";
+  }
+
+  function selectedCharacters() {
+    return state.items.filter((c) => state.selectedIds.has(c.character_id));
+  }
+
+  // ---------- generation modal ----------
+  function openGenModal() {
+    $("gen-modal-bg").classList.add("show");
+    refreshGenPanes();
+    loadExportCandidates();
+    renderJobList();
+  }
+  function closeGenModal() {
+    $("gen-modal-bg").classList.remove("show");
+  }
+
+  // ---------- 本地任务追踪（不再依赖服务端 jobs 轮询） ----------
+  state.jobs = [];   // 最近的任务流水
+  function jobAdd(type, label, cid) {
+    const j = {
+      id: "j" + Date.now() + Math.random().toString(36).slice(2, 6),
+      type, label, status: "running", started_at: Date.now(), cid,
+    };
+    state.jobs.unshift(j);
+    if (state.jobs.length > 80) state.jobs.pop();
+    renderJobList();
+    return j;
+  }
+  function jobDone(j, result) {
+    j.status = "done"; j.result = result; j.ended_at = Date.now();
+    renderJobList();
+  }
+  function jobError(j, err) {
+    j.status = "error"; j.error = err; j.ended_at = Date.now();
+    renderJobList();
+  }
+
+  function switchPane(name) {
+    state.activePane = name;
+    document.querySelectorAll(".gen-nav button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.pane === name)
+    );
+    document.querySelectorAll(".gen-pane").forEach((p) =>
+      p.classList.toggle("active", p.id === `pane-${name}`)
+    );
+    refreshGenPanes();
+  }
+
+  function refreshGenPanes() {
+    renderEnrichList();
+    renderCharPortraitList();
+    renderUserPortraitList();
+    renderExportList();
+  }
+
+  function renderEnrichList() {
+    const list = $("enrich-list");
+    const chars = selectedCharacters();
+    if (!chars.length) {
+      list.innerHTML = `<div class="meta" style="font-size:13px">从首页打开「☐ 选择」模式后勾选若干角色，再回来这里。</div>`;
+      $("enrich-summary").textContent = "";
+      return;
+    }
+    $("enrich-summary").textContent = `${chars.length} 个角色待丰容`;
+    list.innerHTML = chars
+      .map((c) => {
+        const img = c.image_url || c.face_url || "";
+        const r = state.enrichResults[c.character_id];
+        const card = r && r.result && r.result.card;
+        const newName = card ? card.name : null;
+        return `
+          <div class="gen-row">
+            <div class="thumb" style="background-image:url('${img}')"></div>
+            <div>
+              <div class="name">${escapeHtml(c.name || "(无名)")} ${newName ? `<span style="color:var(--ok);font-weight:400">→ ${escapeHtml(newName)}</span>` : ""}</div>
+              <div class="sub">${escapeHtml((c.tags || []).slice(0, 5).join(" · "))}</div>
+              ${card
+                ? `<div class="enrich-card">
+                     <h5>NEW Tagline</h5><p>${escapeHtml(card.tagline || "")}</p>
+                     <h5>NEW Opener</h5><p>${escapeHtml(card.opener || "")}</p>
+                   </div>`
+                : ""}
+            </div>
+            <div class="actions">
+              <button class="icon-btn" id="enrich-btn-${c.character_id}" onclick="enrichOne('${c.character_id}')">单独丰容</button>
+            </div>
+          </div>`;
+      })
+      .join("");
+    syncButtonStates();
+  }
+
+  function renderCharPortraitList() {
+    const list = $("char-portrait-list");
+    const chars = selectedCharacters();
+    if (!chars.length) {
+      list.innerHTML = `<div class="meta" style="font-size:13px">先从首页选几个角色，再到这里给每个角色单独写立绘提示词。</div>`;
+      return;
+    }
+    list.innerHTML = chars
+      .map((c) => {
+        const img = c.image_url || c.face_url || "";
+        const placeholder =
+          "Describe the new portrait. Camera, mood, outfit, lighting, style…";
+        const draft = state.charPortraitDrafts[c.character_id] || "";
+        return `
+          <div class="gen-row">
+            <div class="thumb" style="background-image:url('${img}')" title="参考图：${escapeHtml(c.name)}"></div>
+            <div>
+              <div class="name">${escapeHtml(c.name || "(无名)")}</div>
+              <div class="sub" style="margin-bottom:6px">参考图：原卡片图（自动）</div>
+              <textarea id="cp-prompt-${c.character_id}" placeholder="${placeholder}"
+                oninput="state.charPortraitDrafts['${c.character_id}']=this.value">${escapeHtml(draft)}</textarea>
+            </div>
+            <div class="actions">
+              <button class="icon-btn primary" id="cp-btn-${c.character_id}" onclick="startCharPortrait('${c.character_id}')">生成</button>
+            </div>
+          </div>`;
+      })
+      .join("");
+    syncButtonStates();
+  }
+
+  function renderUserPortraitList() {
+    const list = $("user-portrait-list");
+    const chars = selectedCharacters();
+    if (!chars.length) {
+      list.innerHTML = `<div class="meta" style="font-size:13px">先从首页选几个角色，再到这里给每个角色对应的「用户」写描述。</div>`;
+      return;
+    }
+    list.innerHTML = chars
+      .map((c) => {
+        const img = c.image_url || c.face_url || "";
+        const history = state.userPortraitsByCid[c.character_id] || [];
+        const placeholder =
+          "Describe the user paired with this character. Age, vibe, outfit, setting…";
+        const draft = state.userPortraitDrafts[c.character_id] || "";
+        const historyBits = history
+          .slice(0, 4)
+          .map(
+            (r) => `<a href="${r.image_url}" target="_blank" title="${escapeHtml(r.prompt || "")}">
+              <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${r.image_url}')"></div>
+            </a>`
+          )
+          .join("");
+        return `
+          <div class="gen-row">
+            <div class="thumb" style="background-image:url('${img}')" title="对应角色：${escapeHtml(c.name)}"></div>
+            <div>
+              <div class="name">用户 · 配对 ${escapeHtml(c.name || "(无名)")}</div>
+              <div class="sub" style="margin-bottom:6px">纯文生图，不使用角色形象作参考</div>
+              <textarea id="up-prompt-${c.character_id}" placeholder="${placeholder}"
+                oninput="state.userPortraitDrafts['${c.character_id}']=this.value">${escapeHtml(draft)}</textarea>
+              ${historyBits ? `<div style="display:flex;gap:6px;margin-top:8px;">${historyBits}</div>` : ""}
+            </div>
+            <div class="actions">
+              <button class="icon-btn primary" id="up-btn-${c.character_id}" onclick="startUserPortrait('${c.character_id}')">生成</button>
+            </div>
+          </div>`;
+      })
+      .join("");
+    syncButtonStates();
+  }
+
+  // ---------- generation API calls ----------
+  async function startEnrichSelected() {
+    const ids = Array.from(state.selectedIds);
+    if (!ids.length) return alert("请先选择角色");
+    // Hobby 60s 限制：每个角色一个独立请求，并发跑（浏览器自身会有并发上限）
+    ids.forEach((id) => enrichOne(id));
+  }
+
+  async function enrichOne(cid) {
+    if (state.running.enrich.has(cid)) return;
+    state.running.enrich.add(cid);
+    syncButtonStates();
+    const ch = state.items.find((c) => c.character_id === cid);
+    const job = jobAdd("enrich", `丰容: ${(ch && ch.name) || cid}`, cid);
+    try {
+      const r = await fetch("/api/generate/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ character_id: cid }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      state.enrichResults[cid] = data.result;
+      jobDone(job, data.result);
+      renderEnrichList();
+      loadExportCandidates();
+    } catch (e) {
+      jobError(job, e.message);
+    } finally {
+      state.running.enrich.delete(cid);
+      syncButtonStates();
+    }
+  }
+
+  async function startCharPortrait(cid) {
+    if (state.running.char_portrait.has(cid)) return;
+    const ta = $("cp-prompt-" + cid);
+    const prompt = ta.value.trim();
+    if (!prompt) return alert("请填写立绘描述");
+    state.running.char_portrait.add(cid);
+    syncButtonStates();
+    const ch = state.items.find((c) => c.character_id === cid);
+    const job = jobAdd("portrait_character", `角色立绘: ${(ch && ch.name) || cid}`, cid);
+    try {
+      const r = await fetch("/api/generate/portrait_character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ character_id: cid, prompt }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      jobDone(job, data.result);
+      loadExportCandidates();
+    } catch (e) {
+      jobError(job, e.message);
+    } finally {
+      state.running.char_portrait.delete(cid);
+      syncButtonStates();
+    }
+  }
+
+  async function startUserPortrait(cid) {
+    if (state.running.user_portrait.has(cid)) return;
+    const ta = $("up-prompt-" + cid);
+    const prompt = (ta && ta.value || "").trim();
+    if (!prompt) return alert("请填写描述");
+    state.running.user_portrait.add(cid);
+    syncButtonStates();
+    const ch = state.items.find((c) => c.character_id === cid);
+    const job = jobAdd("portrait_user", `用户立绘 · 配对 ${(ch && ch.name) || cid}`, cid);
+    try {
+      const r = await fetch("/api/generate/portrait_user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, character_id: cid }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      // 维护用户立绘历史
+      (state.userPortraitsByCid[cid] = state.userPortraitsByCid[cid] || []).unshift(data.result);
+      if (state.userPortraitsByCid[cid].length > 8) state.userPortraitsByCid[cid].pop();
+      jobDone(job, data.result);
+      renderUserPortraitList();
+      loadExportCandidates();
+    } catch (e) {
+      jobError(job, e.message);
+    } finally {
+      state.running.user_portrait.delete(cid);
+      syncButtonStates();
+    }
+  }
+
+  /** 局部更新按钮 disabled / 文案，不重渲染 list，保留 textarea 焦点。 */
+  function syncButtonStates() {
+    const setBtn = (id, busy, busyText, idleText) => {
+      const el = $(id);
+      if (!el) return;
+      el.disabled = busy;
+      el.textContent = busy ? busyText : idleText;
+      el.style.opacity = busy ? "0.55" : "";
+      el.style.cursor = busy ? "not-allowed" : "pointer";
+    };
+    // 单个角色按钮
+    state.items.forEach((c) => {
+      const cid = c.character_id;
+      setBtn(`enrich-btn-${cid}`, state.running.enrich.has(cid), "丰容中…", "单独丰容");
+      setBtn(`cp-btn-${cid}`, state.running.char_portrait.has(cid), "生成中…", "生成");
+      setBtn(`up-btn-${cid}`, state.running.user_portrait.has(cid), "生成中…", "生成");
+    });
+    // 「丰容全部选中」按钮：选中角色里只要有一个在丰容就禁用
+    const all = $("enrich-all-btn");
+    if (all) {
+      const anyBusy = Array.from(state.selectedIds).some((id) => state.running.enrich.has(id));
+      all.disabled = anyBusy;
+      all.style.opacity = anyBusy ? "0.55" : "";
+      all.style.cursor = anyBusy ? "not-allowed" : "pointer";
+      all.textContent = anyBusy ? "正在丰容…" : "⚡ 丰容全部选中";
+    }
+  }
+
+  function renderJobList() {
+    const wrap = $("job-list");
+    if (!wrap) return;
+    const jobs = state.jobs || [];
+    if (!jobs.length) {
+      wrap.innerHTML = `<span class="meta">尚无任务</span>`;
+      return;
+    }
+    const labelMap = {
+      queued: "排队中",
+      running: "运行中",
+      done: "完成",
+      error: "失败",
+    };
+    wrap.innerHTML = jobs
+      .slice(0, 50)
+      .map((j) => {
+        const status = j.status;
+        let extra = "";
+        if (status === "done" && j.result) {
+          if (j.type === "enrich" && j.result.result && j.result.result.card) {
+            extra = ` <span style="color:var(--ok);font-size:11.5px">→ ${escapeHtml(j.result.result.card.name || "")}</span>`;
+          } else if ((j.type === "portrait_character" || j.type === "portrait_user") && j.result.image_url) {
+            extra = `<a href="${j.result.image_url}" target="_blank"><div class="img-out" style="background-image:url('${j.result.image_url}')"></div></a>`;
+          }
+        }
+        if (status === "error") {
+          extra = `<span style="color:var(--err);font-size:11.5px">${escapeHtml(j.error || "")}</span>`;
+        }
+        return `
+          <div class="job-row ${status}">
+            <span class="pill">${labelMap[status] || status}</span>
+            <span class="label">${escapeHtml(j.label || j.type)}</span>
+            <span class="actions">${extra}</span>
+          </div>`;
+      })
+      .join("");
+  }
+
+  // ---------- export ----------
+  async function loadExportCandidates() {
+    const r = await fetch("/api/export");
+    if (!r.ok) return;
+    const data = await r.json();
+    state.exportCandidates = data.candidates || [];
+    // 清理掉不存在的选中项
+    const valid = new Set(state.exportCandidates.map((c) => c.character_id));
+    for (const id of Array.from(state.exportSelectedIds)) {
+      if (!valid.has(id)) state.exportSelectedIds.delete(id);
+    }
+    renderExportList();
+  }
+
+  function renderExportList() {
+    const wrap = $("export-list");
+    if (!wrap) return;
+    const list = state.exportCandidates;
+    if (!list.length) {
+      wrap.innerHTML = `<div class="meta" style="font-size:13px">暂无可导出的角色 — 先去生成丰容、角色立绘或用户立绘吧。</div>`;
+      $("export-meta").textContent = "";
+      return;
+    }
+    $("export-meta").textContent = `共 ${list.length} 个候选 · 已选 ${state.exportSelectedIds.size}`;
+    wrap.innerHTML = list
+      .map((c) => {
+        const sel = state.exportSelectedIds.has(c.character_id);
+        const flag = (ok, label) =>
+          ok
+            ? `<span style="color:var(--ok);font-size:11px;font-weight:600">✓ ${label}</span>`
+            : `<span style="color:var(--muted);font-size:11px">— ${label}</span>`;
+        return `
+          <div class="gen-row" style="grid-template-columns:32px 64px 1fr auto 64px 64px;align-items:center;">
+            <input type="checkbox" ${sel ? "checked" : ""} onchange="toggleExport('${c.character_id}', this.checked)" style="width:18px;height:18px;cursor:pointer;" />
+            <div class="thumb" style="background-image:url('${c.image_url || ""}')"></div>
+            <div>
+              <div class="name">${escapeHtml(c.name || "(无名)")}</div>
+              <div class="sub" style="display:flex;gap:10px;margin-top:4px;">
+                ${flag(c.has_enrich, "丰容")}
+                ${flag(c.char_portrait_count > 0, `角色立绘 ${c.char_portrait_count}`)}
+                ${flag(c.user_portrait_count > 0, `用户立绘 ${c.user_portrait_count}`)}
+              </div>
+            </div>
+            <div></div>
+            <div>
+              ${c.char_portrait_url
+                ? `<a href="${c.char_portrait_url}" target="_blank">
+                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${c.char_portrait_url}')" title="角色立绘"></div>
+                   </a>`
+                : `<div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2);"></div>`}
+            </div>
+            <div>
+              ${c.user_portrait_url
+                ? `<a href="${c.user_portrait_url}" target="_blank">
+                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${c.user_portrait_url}')" title="用户立绘"></div>
+                   </a>`
+                : `<div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2);"></div>`}
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  function toggleExport(id, on) {
+    if (on) state.exportSelectedIds.add(id);
+    else state.exportSelectedIds.delete(id);
+    $("export-meta").textContent = `共 ${state.exportCandidates.length} 个候选 · 已选 ${state.exportSelectedIds.size}`;
+  }
+
+  function exportSelectAll(on) {
+    if (on) state.exportCandidates.forEach((c) => state.exportSelectedIds.add(c.character_id));
+    else state.exportSelectedIds.clear();
+    renderExportList();
+  }
+
+  async function doExport() {
+    const ids = Array.from(state.exportSelectedIds);
+    if (!ids.length) return alert("请至少选择一个角色");
+    $("export-meta").textContent = "正在生成 Excel…";
+    const r = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ character_ids: ids }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      $("export-meta").textContent = "";
+      return alert("导出失败: " + (e.error || r.statusText));
+    }
+    const data = await r.json();
+    $("export-meta").textContent = `已生成 ${data.filename}`;
+    // Vercel Blob 加 ?download=1 query 会强制浏览器下载（跨域 a.download 不生效）
+    const dl = data.url + (data.url.includes("?") ? "&" : "?") + "download=1";
+    window.open(dl, "_blank");
+  }
+
+  // ---------- init ----------
+  reload();
+</script>
+</body>
+</html>
