@@ -534,12 +534,12 @@
     selectedIds: new Set(),
     activePane: "enrich",
     genPollTimer: null,
-    enrichResults: {},        // character_id → enrich job result（最新一次）
+    enrichResults: {},        // character_id → enrich result（最新一次）
+    charPortraitsByCid: {},   // character_id → 该角色的角色立绘列表（最新在前）
     userPortraitsByCid: {},   // character_id → 该角色对应的用户立绘列表
     seenJobIds: new Set(),    // 已被消费过的任务，避免重复入历史
     charPortraitDrafts: {},   // character_id → 角色立绘 prompt 草稿
     userPortraitDrafts: {},   // character_id → 用户立绘 prompt 草稿
-    exportCandidates: [],     // 可导出的角色列表（含产物状态）
     exportSelectedIds: new Set(),  // 在「导出」区块选中的角色
     running: {                // 当前正在跑的任务，key 是 character_id
       enrich: new Set(),
@@ -556,19 +556,11 @@
   const genderClass = (g) => (g === "male" || g === "female" ? `gender-${g}` : "gender-other");
   const genderLabel = (g) => (g === "male" ? "♂" : g === "female" ? "♀" : g || "?");
 
-  // ---------- load characters ----------
-  async function reload() {
-    try {
-      const r = await fetch("/api/characters");
-      const data = await r.json();
-      state.items = data.items || [];
-      $("stat-meta").textContent = data.count
-        ? `共 ${data.count} 个角色 · 更新于 ${fmtTime(data.scraped_at)}`
-        : "暂无数据";
-    } catch (e) {
-      state.items = [];
-      $("stat-meta").textContent = "数据加载失败";
-    }
+  // ---------- 本地状态渲染（无后端持久化） ----------
+  function reload() {
+    $("stat-meta").textContent = state.items.length
+      ? `共 ${state.items.length} 个角色 · 当前会话`
+      : "暂无数据 · 点击「立即开始抓取」";
     applyFilters();
   }
 
@@ -789,9 +781,17 @@
         setScrapeStatus("error");
         return;
       }
+      // 抓取结果直接进本地 state（每次抓取覆盖，且清空旧的生成产物）
+      state.items = data.items || [];
+      state.enrichResults = {};
+      state.charPortraitsByCid = {};
+      state.userPortraitsByCid = {};
+      state.selectedIds.clear();
+      state.exportSelectedIds.clear();
       $("log-box").textContent = `✓ 完成。共抓到 ${data.count} 个 ${data.gender || "?"} 角色（${data.feed}）`;
       setScrapeStatus("done");
       reload();
+      closeDrawer();
     } catch (e) {
       $("log-box").textContent = "❌ 网络错误: " + e.message;
       setScrapeStatus("error");
@@ -1000,22 +1000,23 @@
 
   async function enrichOne(cid) {
     if (state.running.enrich.has(cid)) return;
+    const ch = state.items.find((c) => c.character_id === cid);
+    if (!ch) return;
     state.running.enrich.add(cid);
     syncButtonStates();
-    const ch = state.items.find((c) => c.character_id === cid);
-    const job = jobAdd("enrich", `丰容: ${(ch && ch.name) || cid}`, cid);
+    const job = jobAdd("enrich", `丰容: ${ch.name || cid}`, cid);
     try {
       const r = await fetch("/api/generate/enrich", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ character_id: cid }),
+        body: JSON.stringify({ character: ch }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || r.statusText);
       state.enrichResults[cid] = data.result;
       jobDone(job, data.result);
       renderEnrichList();
-      loadExportCandidates();
+      renderExportList();
     } catch (e) {
       jobError(job, e.message);
     } finally {
@@ -1029,20 +1030,24 @@
     const ta = $("cp-prompt-" + cid);
     const prompt = ta.value.trim();
     if (!prompt) return alert("请填写立绘描述");
+    const ch = state.items.find((c) => c.character_id === cid);
+    if (!ch) return;
+    const ref = ch.image_url || ch.face_url || ch.animated_image_url || "";
     state.running.char_portrait.add(cid);
     syncButtonStates();
-    const ch = state.items.find((c) => c.character_id === cid);
-    const job = jobAdd("portrait_character", `角色立绘: ${(ch && ch.name) || cid}`, cid);
+    const job = jobAdd("portrait_character", `角色立绘: ${ch.name || cid}`, cid);
     try {
       const r = await fetch("/api/generate/portrait_character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ character_id: cid, prompt }),
+        body: JSON.stringify({ character_id: cid, prompt, reference_url: ref }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || r.statusText);
+      (state.charPortraitsByCid[cid] = state.charPortraitsByCid[cid] || []).unshift(data.result);
+      if (state.charPortraitsByCid[cid].length > 8) state.charPortraitsByCid[cid].pop();
       jobDone(job, data.result);
-      loadExportCandidates();
+      renderExportList();
     } catch (e) {
       jobError(job, e.message);
     } finally {
@@ -1068,12 +1073,11 @@
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || r.statusText);
-      // 维护用户立绘历史
       (state.userPortraitsByCid[cid] = state.userPortraitsByCid[cid] || []).unshift(data.result);
       if (state.userPortraitsByCid[cid].length > 8) state.userPortraitsByCid[cid].pop();
       jobDone(job, data.result);
       renderUserPortraitList();
-      loadExportCandidates();
+      renderExportList();
     } catch (e) {
       jobError(job, e.message);
     } finally {
@@ -1149,24 +1153,42 @@
       .join("");
   }
 
-  // ---------- export ----------
-  async function loadExportCandidates() {
-    const r = await fetch("/api/export");
-    if (!r.ok) return;
-    const data = await r.json();
-    state.exportCandidates = data.candidates || [];
-    // 清理掉不存在的选中项
-    const valid = new Set(state.exportCandidates.map((c) => c.character_id));
-    for (const id of Array.from(state.exportSelectedIds)) {
-      if (!valid.has(id)) state.exportSelectedIds.delete(id);
-    }
+  // ---------- export （本地计算候选） ----------
+  function exportCandidates() {
+    return state.items
+      .filter((c) => {
+        const cid = c.character_id;
+        const charPs = state.charPortraitsByCid[cid] || [];
+        const userPs = state.userPortraitsByCid[cid] || [];
+        return state.enrichResults[cid] || charPs.length || userPs.length;
+      })
+      .map((c) => {
+        const cid = c.character_id;
+        const charPs = state.charPortraitsByCid[cid] || [];
+        const userPs = state.userPortraitsByCid[cid] || [];
+        return {
+          character: c,
+          enrich: state.enrichResults[cid] || null,
+          char_portraits: charPs,
+          user_portraits: userPs,
+        };
+      });
+  }
+
+  function loadExportCandidates() {
+    // stateless 模式：不需要再请求服务端，直接渲染
     renderExportList();
   }
 
   function renderExportList() {
     const wrap = $("export-list");
     if (!wrap) return;
-    const list = state.exportCandidates;
+    const list = exportCandidates();
+    // 清理掉不再有产物的选中项
+    const valid = new Set(list.map((x) => x.character.character_id));
+    for (const id of Array.from(state.exportSelectedIds)) {
+      if (!valid.has(id)) state.exportSelectedIds.delete(id);
+    }
     if (!list.length) {
       wrap.innerHTML = `<div class="meta" style="font-size:13px">暂无可导出的角色 — 先去生成丰容、角色立绘或用户立绘吧。</div>`;
       $("export-meta").textContent = "";
@@ -1174,8 +1196,11 @@
     }
     $("export-meta").textContent = `共 ${list.length} 个候选 · 已选 ${state.exportSelectedIds.size}`;
     wrap.innerHTML = list
-      .map((c) => {
+      .map((row) => {
+        const c = row.character;
         const sel = state.exportSelectedIds.has(c.character_id);
+        const charP = row.char_portraits[0] || null;
+        const userP = row.user_portraits[0] || null;
         const flag = (ok, label) =>
           ok
             ? `<span style="color:var(--ok);font-size:11px;font-weight:600">✓ ${label}</span>`
@@ -1183,27 +1208,27 @@
         return `
           <div class="gen-row" style="grid-template-columns:32px 64px 1fr auto 64px 64px;align-items:center;">
             <input type="checkbox" ${sel ? "checked" : ""} onchange="toggleExport('${c.character_id}', this.checked)" style="width:18px;height:18px;cursor:pointer;" />
-            <div class="thumb" style="background-image:url('${c.image_url || ""}')"></div>
+            <div class="thumb" style="background-image:url('${c.image_url || c.face_url || ""}')"></div>
             <div>
               <div class="name">${escapeHtml(c.name || "(无名)")}</div>
               <div class="sub" style="display:flex;gap:10px;margin-top:4px;">
-                ${flag(c.has_enrich, "丰容")}
-                ${flag(c.char_portrait_count > 0, `角色立绘 ${c.char_portrait_count}`)}
-                ${flag(c.user_portrait_count > 0, `用户立绘 ${c.user_portrait_count}`)}
+                ${flag(!!row.enrich, "丰容")}
+                ${flag(row.char_portraits.length > 0, `角色立绘 ${row.char_portraits.length}`)}
+                ${flag(row.user_portraits.length > 0, `用户立绘 ${row.user_portraits.length}`)}
               </div>
             </div>
             <div></div>
             <div>
-              ${c.char_portrait_url
-                ? `<a href="${c.char_portrait_url}" target="_blank">
-                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${c.char_portrait_url}')" title="角色立绘"></div>
+              ${charP
+                ? `<a href="${charP.image_url}" target="_blank">
+                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${charP.image_url}')" title="角色立绘"></div>
                    </a>`
                 : `<div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2);"></div>`}
             </div>
             <div>
-              ${c.user_portrait_url
-                ? `<a href="${c.user_portrait_url}" target="_blank">
-                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${c.user_portrait_url}')" title="用户立绘"></div>
+              ${userP
+                ? `<a href="${userP.image_url}" target="_blank">
+                     <div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2) center/cover;background-image:url('${userP.image_url}')" title="用户立绘"></div>
                    </a>`
                 : `<div style="width:54px;aspect-ratio:9/16;border-radius:6px;background:var(--bg-2);"></div>`}
             </div>
@@ -1215,11 +1240,13 @@
   function toggleExport(id, on) {
     if (on) state.exportSelectedIds.add(id);
     else state.exportSelectedIds.delete(id);
-    $("export-meta").textContent = `共 ${state.exportCandidates.length} 个候选 · 已选 ${state.exportSelectedIds.size}`;
+    const list = exportCandidates();
+    $("export-meta").textContent = `共 ${list.length} 个候选 · 已选 ${state.exportSelectedIds.size}`;
   }
 
   function exportSelectAll(on) {
-    if (on) state.exportCandidates.forEach((c) => state.exportSelectedIds.add(c.character_id));
+    const list = exportCandidates();
+    if (on) list.forEach((row) => state.exportSelectedIds.add(row.character.character_id));
     else state.exportSelectedIds.clear();
     renderExportList();
   }
@@ -1228,21 +1255,45 @@
     const ids = Array.from(state.exportSelectedIds);
     if (!ids.length) return alert("请至少选择一个角色");
     $("export-meta").textContent = "正在生成 Excel…";
-    const r = await fetch("/api/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ character_ids: ids }),
-    });
-    if (!r.ok) {
-      const e = await r.json().catch(() => ({}));
+    // 把当前 state 里这些角色的全部数据汇总成 rows 发给后端
+    const rows = exportCandidates()
+      .filter((row) => ids.includes(row.character.character_id))
+      .map((row) => ({
+        character: row.character,
+        enrich: row.enrich,
+        char_portrait_url: (row.char_portraits[0] || {}).image_url || null,
+        user_portrait_url: (row.user_portraits[0] || {}).image_url || null,
+      }));
+    let data;
+    try {
+      const r = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        $("export-meta").textContent = "";
+        return alert("导出失败: " + (data.error || r.statusText));
+      }
+    } catch (e) {
       $("export-meta").textContent = "";
-      return alert("导出失败: " + (e.error || r.statusText));
+      return alert("导出失败: " + e.message);
     }
-    const data = await r.json();
-    $("export-meta").textContent = `已生成 ${data.filename}`;
-    // Vercel Blob 加 ?download=1 query 会强制浏览器下载（跨域 a.download 不生效）
-    const dl = data.url + (data.url.includes("?") ? "&" : "?") + "download=1";
-    window.open(dl, "_blank");
+    // 后端返回 base64，浏览器直接生成下载链接
+    const bin = atob(data.content_b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const blob = new Blob([u8], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = data.filename || "export.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $("export-meta").textContent = `已下载 ${data.filename}`;
   }
 
   // ---------- init ----------

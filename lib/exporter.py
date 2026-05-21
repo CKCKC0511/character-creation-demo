@@ -1,7 +1,12 @@
-"""导出选中角色到 Excel（图片从 Blob URL 读回，Excel 写到 Blob 返回 URL）。"""
+"""导出选中角色到 Excel —— stateless 版本。
+
+接受前端发来的完整数据 payload（characters + 丰容结果 + 图片 URL），
+fetch 图片 URL 把字节嵌入 Excel，返回 base64 编码后的 .xlsx 给前端下载。
+"""
 
 from __future__ import annotations
 
+import base64
 import io
 import time
 from typing import Any
@@ -12,8 +17,6 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PIL import Image as PILImage
-
-from .storage import blob_put, kv_get_json
 
 EMBED_MAX_H_PX = 1024
 EMBED_DISPLAY_H_PX = 480
@@ -51,7 +54,7 @@ def _resize_for_excel(img_bytes: bytes, max_h_px: int = EMBED_MAX_H_PX) -> bytes
         return buf.getvalue()
 
 
-def _fetch_blob(url: str) -> bytes | None:
+def _fetch_image(url: str) -> bytes | None:
     try:
         r = requests.get(url, timeout=30)
         r.raise_for_status()
@@ -60,51 +63,15 @@ def _fetch_blob(url: str) -> bytes | None:
         return None
 
 
-def collect_artifacts(cid: str) -> dict[str, Any]:
-    enrich = kv_get_json(f"enriched:{cid}")
-    char_p = kv_get_json(f"char_portraits:{cid}") or []
-    user_p = kv_get_json(f"user_portraits:{cid}") or []
-    return {
-        "character_id": cid,
-        "enrich": enrich,
-        "char_portraits": char_p,
-        "user_portraits": user_p,
+def export_to_excel(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """rows 来自前端，每个元素结构:
+    {
+      "character": {...},                   # tipsy 抓回来的原始 character dict
+      "enrich": {...} or null,              # enrich_character() 返回值
+      "char_portrait_url": "...",           # 第一张角色立绘 URL（可空）
+      "user_portrait_url": "...",           # 第一张用户立绘 URL（可空）
     }
-
-
-def list_candidates() -> list[dict[str, Any]]:
-    items = kv_get_json("characters") or []
-    out = []
-    for ch in items:
-        cid = ch.get("character_id")
-        if not cid:
-            continue
-        art = collect_artifacts(cid)
-        if not (art["enrich"] or art["char_portraits"] or art["user_portraits"]):
-            continue
-        out.append(
-            {
-                "character_id": cid,
-                "name": ch.get("name", ""),
-                "gender": ch.get("gender", ""),
-                "image_url": ch.get("image_url") or ch.get("face_url") or "",
-                "has_enrich": bool(art["enrich"]),
-                "char_portrait_count": len(art["char_portraits"]),
-                "user_portrait_count": len(art["user_portraits"]),
-                "char_portrait_url": (art["char_portraits"][0]["image_url"]
-                                       if art["char_portraits"] else None),
-                "user_portrait_url": (art["user_portraits"][0]["image_url"]
-                                       if art["user_portraits"] else None),
-            }
-        )
-    out.sort(key=lambda x: (-int(x["has_enrich"]), -x["char_portrait_count"], x["name"]))
-    return out
-
-
-def export_to_excel(character_ids: list[str]) -> dict[str, Any]:
-    items = kv_get_json("characters") or []
-    index = {c.get("character_id"): c for c in items if c.get("character_id")}
-
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "Characters"
@@ -124,15 +91,12 @@ def export_to_excel(character_ids: list[str]) -> dict[str, Any]:
 
     row_h = 380
 
-    for row_i, cid in enumerate(character_ids, start=2):
-        ch = index.get(cid)
-        if not ch:
-            continue
-        art = collect_artifacts(cid)
-        enrich_result = (art.get("enrich") or {}).get("result") or {}
-        cha_set = enrich_result.get("cha_set") or {}
-        card = enrich_result.get("card") or {}
-        user_set = enrich_result.get("user_set") or {}
+    for row_i, row in enumerate(rows, start=2):
+        ch = row.get("character") or {}
+        enrich = (row.get("enrich") or {}).get("result") or {}
+        cha_set = enrich.get("cha_set") or {}
+        card = enrich.get("card") or {}
+        user_set = enrich.get("user_set") or {}
 
         values = [
             row_i - 1,
@@ -156,16 +120,13 @@ def export_to_excel(character_ids: list[str]) -> dict[str, Any]:
         ws.row_dimensions[row_i].height = row_h
 
         for col_letter, key, col_i in (
-            ("N", "char_portraits", 14),
-            ("O", "user_portraits", 15),
+            ("N", "char_portrait_url", 14),
+            ("O", "user_portrait_url", 15),
         ):
-            paths = art.get(key) or []
-            if not paths:
-                continue
-            url = paths[0].get("image_url")
+            url = row.get(key)
             if not url:
                 continue
-            raw = _fetch_blob(url)
+            raw = _fetch_image(url)
             if not raw:
                 ws.cell(row=row_i, column=col_i, value="[image fetch failed]")
                 continue
@@ -180,13 +141,13 @@ def export_to_excel(character_ids: list[str]) -> dict[str, Any]:
 
     buf = io.BytesIO()
     wb.save(buf)
-    buf.seek(0)
-
+    raw = buf.getvalue()
+    b64 = base64.b64encode(raw).decode("ascii")
     ts = time.strftime("%Y%m%d_%H%M%S")
-    pathname = f"exports/characters_export_{ts}.xlsx"
-    url = blob_put(
-        pathname,
-        buf.getvalue(),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    return {"ok": True, "filename": f"characters_export_{ts}.xlsx", "url": url, "count": len(character_ids)}
+    return {
+        "ok": True,
+        "filename": f"characters_export_{ts}.xlsx",
+        "content_b64": b64,
+        "size": len(raw),
+        "count": len(rows),
+    }
